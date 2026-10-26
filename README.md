@@ -1,3 +1,5 @@
+[English](README.md) | [简体中文](README.zh-CN.md)
+
 # modal-comfyui
 
 Run ComfyUI on Modal with auto-scaling, GPU snapshots, and easy model management.
@@ -88,6 +90,10 @@ or edited in the ComfyUI browser are stored in the container image filesystem
 and are lost after scale-down or redeployment unless the user directory is
 moved to a Modal Volume.
 
+The bundled `reverse_proxy_fix` custom node also handles reverse proxies that
+decode `%2F` in `/userdata` paths. It registers slash-tolerant GET, POST, and
+DELETE routes so nested workflow files can both load and save correctly.
+
 ### Plugins and Custom Nodes
 
 Copy `plugins.example.py` to `plugins.py` and edit it to add custom node IDs or titles to be installed via `comfy-cli`.
@@ -98,6 +104,10 @@ For external Git plugins, a `requirements.txt` is installed automatically when i
 Custom nodes are cloned while the Modal image is being built. The `plugins.py`
 file is copied into the image, so changing the plugin configuration invalidates
 that image layer and causes a rebuild on the next deployment.
+
+External Git plugins use shallow clones with a 180-second timeout and three
+attempts, which avoids failing the entire image build on a transient GitHub
+connection timeout.
 
 ### In case of Insufficient Custom Node
 
@@ -132,6 +142,48 @@ Use the Web Function URL printed by `modal deploy`; it normally has no `-dev`
 suffix. Once the app name, environment, class name, and web method name remain
 unchanged, later `modal deploy` runs keep the same production URL. A reverse
 proxy therefore does **not** need to change for every deployment.
+
+### Accessing the deployed container
+
+Modal does **not** expose public SSH for application containers, and the
+ComfyUI image does not run an SSH server. Do not try to SSH to the
+`.modal.run` hostname.
+
+While a container is running, use the authenticated Modal CLI from another
+terminal:
+
+```bash
+modal container list
+modal shell <container-id>
+```
+
+For a single non-interactive command:
+
+```bash
+modal container exec <container-id> -- /bin/bash -lc '
+  ls -la /root/comfy/ComfyUI
+  find /root/comfy/ComfyUI/user/default/workflows -maxdepth 2 -type f | head
+'
+```
+
+Containers scale to zero after the configured idle window, so no container may
+be listed until ComfyUI is woken by a request. The container and its temporary
+filesystem disappear on scale-down; use a Modal Volume for data that must
+persist.
+
+You can also start a separate shell using the app's image specification:
+
+```bash
+modal shell comfyui.py::ComfyUI.ui
+```
+
+This does not guarantee access to the same running container or its in-memory
+state.
+
+The authenticated reverse-proxy host is a separate machine and is accessed via
+its own SSH configuration. It is not part of the Modal container. Do not expose
+an SSH server through the reverse proxy just for routine administration; Modal
+CLI access is scoped to the authenticated Workspace.
 
 ### Updating a deployed app
 

@@ -1,10 +1,10 @@
-"""Let ComfyUI save workflows when Modal's proxy decodes %2F in userdata paths.
+"""Let ComfyUI load and save workflows when a proxy decodes %2F in userdata paths.
 
-ComfyUI registers POST/DELETE ``/userdata/{file}`` for a single path segment,
-and its frontend percent-encodes the slash so ``workflows/foo.json`` travels as
-``workflows%2Ffoo.json``. Modal's edge proxy decodes that ``%2F`` back to ``/``
-before ComfyUI sees it, so the path gains a segment, the single-segment routes
-stop matching, and saving fails with HTTP 405.
+ComfyUI registers ``/userdata/{file}`` for a single path segment, and its
+frontend percent-encodes the slash so ``workflows/foo.json`` travels as
+``workflows%2Ffoo.json``. A reverse proxy may decode that ``%2F`` back to ``/``
+before ComfyUI sees it, so the path gains a segment and the single-segment
+routes stop matching. Loading then returns HTTP 404 and saving returns HTTP 405.
 
 Fix: after ComfyUI registers its routes, register the same userdata handlers
 under a slash-tolerant ``{file:.+}`` pattern so the decoded paths resolve to
@@ -15,7 +15,7 @@ captured value containing ``/`` still cannot escape the user directory.
 from server import PromptServer
 
 _SUFFIX = "/userdata/{file}"
-_METHODS = ("POST", "DELETE")
+_METHODS = ("GET", "POST", "DELETE")
 
 
 def _register_slash_tolerant_userdata(app):

@@ -35,7 +35,9 @@ def workflow_clone_command(
         'credential.helper=!f() { echo "username=x-access-token"; '
         'echo "password=$GITHUB_TOKEN"; }; f'
     )
-    return "\n".join(
+    # Modal's image builder treats each newline in a RUN command as a new
+    # Dockerfile instruction, so keep this command on one physical line.
+    return "; ".join(
         [
             "set -eu",
             'test -n "${GITHUB_TOKEN:-}" || '

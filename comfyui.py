@@ -9,7 +9,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 import modal
 
 from models import models, models_ext
-from plugin_install import requirements_install_command
+from plugin_install import git_clone_command, requirements_install_command
 from plugins import comfy_plugins
 from workflow_install import workflow_clone_command
 
@@ -205,13 +205,13 @@ def install_ext_plugin(image: modal.Image, plugin: dict) -> modal.Image:
     nodes_dir = "/root/comfy/ComfyUI/custom_nodes"
     url = plugin["url"]
     name = url.rstrip("/").rsplit("/", 1)[-1].removesuffix(".git")
+    if not name or name in {".", ".."} or "/" in name or "\\" in name:
+        raise ValueError(f"Invalid custom node repository URL: {url}")
     work_dir = f"{nodes_dir}/{name}"
 
     branch = plugin.get("branch", "").strip()
-    branch_opt = f"--branch {shlex.quote(branch)} " if branch else ""
     image = image.run_commands(
-        f"cd {nodes_dir} && git clone --recurse-submodules --single-branch "
-        f"{branch_opt}{shlex.quote(url)}"
+        git_clone_command(url, work_dir, branch=branch)
     )
 
     requirements_command = requirements_install_command(

@@ -10,6 +10,13 @@ from workflow_install import workflow_clone_command
 
 
 class WorkflowCloneCommandTest(unittest.TestCase):
+    def test_generates_a_single_line_for_modal_image_builder(self) -> None:
+        command = workflow_clone_command(
+            "https://github.com/owner/private-workflows.git",
+            ref="main",
+        )
+        self.assertNotIn("\n", command)
+
     def test_copies_repository_contents_directly_into_workflow_directory(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
