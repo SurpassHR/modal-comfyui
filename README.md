@@ -47,6 +47,8 @@ See `models.example.py` for reference.
 Copy `plugins.example.py` to `plugins.py` and edit it to add custom node IDs or titles to be installed via `comfy-cli`.
 - **Workflow Dependencies**: If you have a `workflow_api.json` in the root directory, the setup will automatically install the necessary custom nodes for that workflow.
 
+For external Git plugins, a `requirements.txt` is installed automatically when it exists. You can provide an explicit `requirements` list, or use `"requirements": []` to skip dependency installation.
+
 ### In case of Insufficient Custom Node
 
 Open ComfyUI manager on comfyui and click "Used in Workflow" to see which custom nodes are used in the workflow.

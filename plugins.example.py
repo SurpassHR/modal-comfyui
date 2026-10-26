@@ -8,7 +8,8 @@ comfy_plugins_ext = [
     # {
     #     "url": "https://github.com/owner/repo.git",
     #     "branch": "main",  # optional; omit to use the repo's default branch
-    #     "requirements": ["requirements.txt", "pyproject.toml"],  # optional req files
+    #     # Optional; defaults to requirements.txt if present. Use [] to skip.
+    #     "requirements": ["requirements.txt", "pyproject.toml"],
     #     "install": "install.py",  # optional install script (.py)
     #     "ext_deps": ["numpy<2", "setuptools<=81"],  # optional extra pip packages
     # },
