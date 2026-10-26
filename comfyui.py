@@ -11,6 +11,7 @@ import modal
 from models import models, models_ext
 from plugin_install import requirements_install_command
 from plugins import comfy_plugins
+from workflow_install import workflow_clone_command
 
 try:
     from plugins import comfy_plugins_ext
@@ -20,6 +21,8 @@ except ImportError:
 root_dir = Path(__file__).parent
 
 COMFY_MODELS_ROOT = Path("/root/comfy/ComfyUI/models")
+WORKFLOW_REPO_URL = "https://github.com/SurpassHR/ComfyUI-workflows.git"
+WORKFLOW_REPO_REF = os.getenv("WORKFLOW_REPO_REF", "master")
 
 GPU_TYPE = os.getenv("MODAL_GPU", "L4")
 COMFY_VER = os.getenv("COMFY_VER")
@@ -128,7 +131,9 @@ vol = modal.Volume.from_name("hf-hub-cache", create_if_missing=True)
 VERSION = f"--version {COMFY_VER}" if COMFY_VER else ""
 image = (
     modal.Image.debian_slim(python_version="3.11")
-    .add_local_python_source("models", "plugins", "plugin_install", copy=True)
+    .add_local_python_source(
+        "models", "plugins", "plugin_install", "workflow_install", copy=True
+    )
     .apt_install("git", "git-lfs", "libgl1-mesa-dev", "libglib2.0-0", "axel")
     .pip_install_from_requirements(str(root_dir / "requirements_comfy.txt"))
     .run_commands(f"comfy --skip-prompt install --nvidia {VERSION}")
@@ -152,6 +157,20 @@ def _hf_secrets() -> list[modal.Secret]:
                 "gated models will fail."
             )
         return [modal.Secret.from_dict({"HF_TOKEN": hf_token, "CIVITAI_TOKEN": civ_token})]
+
+
+def _github_secret() -> modal.Secret:
+    """Return the build-time secret used to clone private workflow repos."""
+    try:
+        secret = modal.Secret.from_name("github-secret")
+        secret.hydrate()
+        return secret
+    except modal.exception.NotFoundError:
+        raise RuntimeError(
+            "Missing Modal secret 'github-secret'. Create it with: "
+            "modal secret create github-secret GITHUB_TOKEN=<github-pat>"
+        ) from None
+
 
 # download models
 image = image.env(
@@ -231,6 +250,18 @@ image = image.add_local_dir(
     copy=True,
 )
 
+# Workflow JSONs saved by the ComfyUI frontend live under user/default/workflows.
+# Force this final layer to rebuild so each deployment picks up the latest private
+# workflow repository without invalidating the much more expensive ComfyUI layers.
+image = image.run_commands(
+    workflow_clone_command(
+        WORKFLOW_REPO_URL,
+        ref=WORKFLOW_REPO_REF,
+    ),
+    secrets=[_github_secret()],
+    force_build=True,
+)
+
 
 def wait_for_port(port: int, timeout: int = 60):
     """Block until the port is accepting connections."""
@@ -272,7 +303,7 @@ class ComfyUI:
         wait_for_port(8000, timeout=30)
         print("App Restored!")
     
-    @modal.web_server(8000, startup_timeout=300)
+    @modal.web_server(8000, startup_timeout=300, requires_proxy_auth=True)
     def ui(self):
         print("App Ready!")
     

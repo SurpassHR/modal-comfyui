@@ -24,7 +24,7 @@ models = [
 ]
 
 models_ext = [
-    # External downloads (via aria2c). Use for civitai, direct URLs, etc.
+    # External downloads (via axel). Use for civitai, direct URLs, etc.
     # {
     #     "url": "URL",
     #     "filename": "FILENAME",
