@@ -9,7 +9,12 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 import modal
 
 from models import models, models_ext
-from plugin_install import git_clone_command, requirements_install_command
+from plugin_install import (
+    DEFAULT_CONSTRAINTS_FILE,
+    core_constraints_command,
+    git_clone_command,
+    requirements_install_command,
+)
 from plugins import comfy_plugins
 from workflow_install import workflow_clone_command
 
@@ -138,6 +143,7 @@ image = (
     .pip_install_from_requirements(str(root_dir / "requirements_comfy.txt"))
     .run_commands(f"comfy --skip-prompt install --nvidia {VERSION}")
     .run_commands("git lfs install")
+    .run_commands(core_constraints_command())
 )
 
 def _hf_secrets() -> list[modal.Secret]:
@@ -218,8 +224,8 @@ def install_ext_plugin(image: modal.Image, plugin: dict) -> modal.Image:
         work_dir, plugin.get("requirements")
     )
     if requirements_command:
-        # --no-deps so a node's requirements can't pull a CPU-only torch over
-        # the CUDA build; use "ext_deps" below to add back what's needed.
+        # The constraints file pins torch/CUDA/numpy while allowing third-party
+        # dependencies to be installed transitively.
         image = image.run_commands(requirements_command)
 
     install = plugin.get("install", "").strip()
@@ -233,7 +239,10 @@ def install_ext_plugin(image: modal.Image, plugin: dict) -> modal.Image:
 
     ext_deps = plugin.get("ext_deps") or []
     if ext_deps:
-        image = image.uv_pip_install(ext_deps, extra_options="--no-deps")
+        image = image.uv_pip_install(
+            ext_deps,
+            extra_options=f"--constraint {shlex.quote(DEFAULT_CONSTRAINTS_FILE)}",
+        )
 
     return image
 

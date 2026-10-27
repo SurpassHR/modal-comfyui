@@ -6,6 +6,8 @@ import types
 import unittest
 from pathlib import Path
 
+from aiohttp import web
+
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 
@@ -85,6 +87,11 @@ class ReverseProxyFixTest(unittest.TestCase):
         self.assertIn(("DELETE", "/userdata/{file:.+}", delete_handler), app.router.added)
         self.assertIn(("GET", "/api/userdata/{file:.+}", get_handler), app.router.added)
         self.assertNotIn(("GET", "/userdata{file:.+}", get_handler), app.router.added)
+
+    def test_disables_websocket_compression_for_modal_proxy(self) -> None:
+        self._load_module()
+        response = web.WebSocketResponse()
+        self.assertFalse(response.compress)
 
 
 if __name__ == "__main__":

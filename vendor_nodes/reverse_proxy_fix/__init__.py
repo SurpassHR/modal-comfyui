@@ -1,4 +1,4 @@
-"""Let ComfyUI load and save workflows when a proxy decodes %2F in userdata paths.
+"""Compatibility fixes for running ComfyUI behind a reverse proxy.
 
 ComfyUI registers ``/userdata/{file}`` for a single path segment, and its
 frontend percent-encodes the slash so ``workflows/foo.json`` travels as
@@ -10,8 +10,13 @@ Fix: after ComfyUI registers its routes, register the same userdata handlers
 under a slash-tolerant ``{file:.+}`` pattern so the decoded paths resolve to
 them. ComfyUI's handlers validate the path (``abspath`` + ``commonpath``), so a
 captured value containing ``/`` still cannot escape the user directory.
+
+Modal's WebSocket edge does not support the ``permessage-deflate`` extension.
+Disable compression on aiohttp WebSocket responses so the proxy does not accept
+the HTTP upgrade and then immediately close the connection.
 """
 
+from aiohttp import web
 from server import PromptServer
 
 _SUFFIX = "/userdata/{file}"
@@ -42,6 +47,24 @@ def _add_routes(self):
 
 
 PromptServer.add_routes = _add_routes
+
+
+def _disable_websocket_compression():
+    original = web.WebSocketResponse
+    if getattr(original, "_modal_no_compression", False):
+        return
+
+    class NoCompressionWebSocketResponse(original):
+        _modal_no_compression = True
+
+        def __init__(self, *args, **kwargs):
+            kwargs.setdefault("compress", False)
+            super().__init__(*args, **kwargs)
+
+    web.WebSocketResponse = NoCompressionWebSocketResponse
+
+
+_disable_websocket_compression()
 
 NODE_CLASS_MAPPINGS = {}
 NODE_DISPLAY_NAME_MAPPINGS = {}

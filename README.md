@@ -109,6 +109,29 @@ External Git plugins use shallow clones with a 180-second timeout and three
 attempts, which avoids failing the entire image build on a transient GitHub
 connection timeout.
 
+#### Package management in the deployed image
+
+The repository's local CLI environment is managed by uv through pyproject.toml
+and uv.lock. The Modal image is different: ComfyUI is installed with comfy-cli,
+base packages use pip, and custom-node requirements use uv. comfy-cli installs
+uv at /usr/local/bin/uv, so uv is available in the running ComfyUI container.
+If uv is missing, check that you are inspecting the Modal app container rather
+than the reverse-proxy host or another environment.
+
+Custom-node requirements are installed together with their transitive
+dependencies. A generated constraints file pins torch, torchvision, torchaudio,
+CUDA/NVIDIA libraries, numpy, OpenCV, triton, and xformers. This resolves missing
+packages such as pyparsing or lazy-loader without replacing the CUDA PyTorch
+build with a CPU-only version.
+
+#### ComfyUI-Manager
+
+ComfyUI-Manager is built into the managed ComfyUI installation and is enabled
+with --enable-manager. Do not add ComfyUI-Manager to plugins.py or
+comfy_plugins_ext: ComfyUI deliberately blocks the custom_nodes copy to avoid
+loading a duplicate Manager. The installed Python package still provides the
+Manager UI and cache service.
+
 ### In case of Insufficient Custom Node
 
 Open ComfyUI manager on comfyui and click "Used in Workflow" to see which custom nodes are used in the workflow.
@@ -335,6 +358,12 @@ curl -H "Authorization: Bearer wk-....ws-..." \
 Unauthenticated requests are rejected at Modal's edge with `401`, before a GPU
 container is started. Never commit proxy tokens or expose them to browser
 JavaScript.
+
+The Modal WebSocket edge does not support the `permessage-deflate` extension.
+The bundled `reverse_proxy_fix` node therefore disables aiohttp WebSocket
+compression. Without this, the connection can appear to upgrade with `101` and
+then immediately close with code `1000`, causing the frontend to reconnect and
+never receive progress updates.
 
 #### Nginx reverse proxy for browser access
 

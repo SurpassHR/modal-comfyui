@@ -120,6 +120,26 @@ POST、DELETE 路由，使嵌套目录中的工作流能够正常加载和保存
 外部 Git 插件使用浅克隆，单次最多 180 秒，最多尝试 3 次。这样可以避免一次
 临时 GitHub 网络超时导致整个镜像构建失败。
 
+#### 部署镜像中的包管理
+
+本仓库的本地 CLI 环境使用 uv，由 pyproject.toml 和 uv.lock 管理。Modal 镜像
+则使用不同的组合：ComfyUI 由 comfy-cli 安装，基础依赖使用 pip，自定义节点
+依赖使用 uv。comfy-cli 会安装 uv 到 /usr/local/bin/uv，因此运行中的 ComfyUI
+容器里有 uv。如果看不到 uv，请确认检查的是 Modal App 容器，而不是反向代理
+服务器或其他环境。
+
+自定义节点依赖会连同传递依赖一起安装。构建时会生成 constraints 文件，固定
+torch、torchvision、torchaudio、CUDA/NVIDIA 库、numpy、OpenCV、triton 和
+xformers 的版本。这样既能补齐 pyparsing、lazy-loader 等缺失依赖，又不会把
+CUDA PyTorch 替换成 CPU 版本。
+
+#### ComfyUI-Manager
+
+ComfyUI-Manager 已内置于受管理的 ComfyUI 安装中，并通过 --enable-manager
+启用。不要将 ComfyUI-Manager 加入 plugins.py 或 comfy_plugins_ext；ComfyUI
+会主动阻止 custom_nodes 中的重复 Manager。已安装的 Python 包仍会提供 Manager
+界面和缓存服务。
+
 ### 缺失自定义节点时
 
 打开 ComfyUI Manager，点击 **Used in Workflow**，查看当前工作流使用了哪些
@@ -340,6 +360,10 @@ curl -H "Authorization: Bearer wk-....ws-..." \
 
 未认证请求会在 Modal 边缘直接返回 `401`，不会启动 GPU 容器。不要把
 Proxy Token 提交到仓库，也不要暴露给浏览器 JavaScript。
+
+Modal 的 WebSocket 边缘不支持 `permessage-deflate` 扩展。内置的
+`reverse_proxy_fix` 节点会禁用 aiohttp WebSocket 压缩。否则连接可能显示为
+`101` 已升级，随后立即以 `1000` 关闭，导致前端反复重连且收不到进度更新。
 
 #### 使用 Nginx 反向代理提供浏览器访问
 

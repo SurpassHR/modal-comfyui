@@ -6,6 +6,23 @@ from urllib.parse import urlsplit
 
 
 DEFAULT_REQUIREMENTS_FILES = ("requirements.txt",)
+DEFAULT_CONSTRAINTS_FILE = "/tmp/modal-comfyui-constraints.txt"
+_CORE_PACKAGES_PATTERN = (
+    "^(torch|torchvision|torchaudio|torchcodec|numpy|opencv[-_].*|"
+    "triton|nvidia-.*|xformers)=="
+)
+
+
+def core_constraints_command(
+    constraints_file: str = DEFAULT_CONSTRAINTS_FILE,
+) -> str:
+    """Pin the installed CUDA and numeric stack before adding node dependencies."""
+    return (
+        "set -eu; python -m pip freeze | "
+        f"grep -Ei {shlex.quote(_CORE_PACKAGES_PATTERN)} "
+        f"> {shlex.quote(constraints_file)}; "
+        f"test -s {shlex.quote(constraints_file)}"
+    )
 
 
 def git_clone_command(
@@ -61,6 +78,7 @@ def git_clone_command(
 def requirements_install_command(
     work_dir: str,
     requirements: Sequence[str] | None,
+    constraints_file: str | None = DEFAULT_CONSTRAINTS_FILE,
 ) -> str | None:
     """Build a shell command that installs every requirement file that exists.
 
@@ -73,11 +91,14 @@ def requirements_install_command(
         return None
 
     quoted_files = " ".join(shlex.quote(path) for path in requirements)
+    constraint_opt = (
+        f"--constraint {shlex.quote(constraints_file)} " if constraints_file else ""
+    )
     return (
         f"cd {shlex.quote(work_dir)} && "
         f"for req_file in {quoted_files}; do "
         f'if [ -f "$req_file" ]; then '
-        f'uv pip install --no-deps --python "$(command -v python)" '
+        f'uv pip install {constraint_opt}--python "$(command -v python)" '
         f'--compile-bytecode -r "$req_file"; '
         f'else echo "Skipping missing requirements file: $PWD/$req_file"; fi; '
         f"done"

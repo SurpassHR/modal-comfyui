@@ -6,7 +6,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from plugin_install import git_clone_command, requirements_install_command
+from plugin_install import (
+    DEFAULT_CONSTRAINTS_FILE,
+    core_constraints_command,
+    git_clone_command,
+    requirements_install_command,
+)
 
 
 class GitCloneCommandTest(unittest.TestCase):
@@ -136,6 +141,9 @@ class RequirementsInstallCommandTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("-r", args)
         self.assertIn("requirements.txt", args)
+        self.assertIn("--constraint", args)
+        self.assertIn(DEFAULT_CONSTRAINTS_FILE, args)
+        self.assertNotIn("--no-deps", args)
 
     def test_skips_missing_requirements_txt_without_failing(self) -> None:
         with tempfile.TemporaryDirectory() as work_dir:
@@ -147,6 +155,13 @@ class RequirementsInstallCommandTest(unittest.TestCase):
 
     def test_empty_requirements_disables_dependency_install(self) -> None:
         self.assertIsNone(requirements_install_command("/tmp/plugin", []))
+
+    def test_core_constraints_command_pins_torch_ecosystem(self) -> None:
+        command = core_constraints_command()
+        self.assertNotIn("\n", command)
+        self.assertIn("pip freeze", command)
+        self.assertIn("torch", command)
+        self.assertIn(DEFAULT_CONSTRAINTS_FILE, command)
 
 
 if __name__ == "__main__":
