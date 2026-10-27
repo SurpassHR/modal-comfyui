@@ -133,6 +133,14 @@ torch、torchvision、torchaudio、CUDA/NVIDIA 库、numpy、OpenCV、triton 和
 xformers 的版本。这样既能补齐 pyparsing、lazy-loader 等缺失依赖，又不会把
 CUDA PyTorch 替换成 CPU 版本。
 
+镜像会显式请求 CUDA 13.0，因为构建阶段没有 GPU，comfy-cli 默认会回退到
+CUDA 12.6。`int8 convrot` 模型使用的 Comfy Kitchen 优化路径需要 CUDA 13.0。
+只有目标 GPU 驱动过旧时才需要覆盖版本：
+
+```bash
+COMFY_CUDA_VERSION=12.6 modal deploy comfyui.py
+```
+
 #### ComfyUI-Manager
 
 ComfyUI-Manager 已内置于受管理的 ComfyUI 安装中，并通过 --enable-manager
@@ -178,6 +186,10 @@ modal deploy comfyui.py
 请使用 `modal deploy` 输出的 Web Function URL。正式地址通常不带
 `-dev`。只要 App 名称、环境、类名和 Web 方法名不变，后续部署会保持
 同一个生产 URL，因此反向代理**不需要**每次部署都修改。
+
+当前部署使用普通容器启动，不启用 Modal 的内存或 GPU 快照。快照曾导致
+CUDA 13 的 ComfyUI Web 容器一直处于 pending 状态，无法创建可运行容器。
+冷启动大约需要 60–90 秒；空闲 60 秒后容器会缩容到零。
 
 ### 访问已部署的容器
 
@@ -508,7 +520,7 @@ App。
 ## 功能
 
 - **自动扩缩容**：空闲时缩容到零，减少费用。
-- **GPU 快照**：使用 Modal GPU 快照加快启动。
+- **CUDA 13 加速**：为 `int8 convrot` 模型启用优化的 Comfy Kitchen 内核。
 - **模型缓存**：使用 Modal Volume 在多次运行之间缓存模型。
 - **自定义节点管理**：集成 `comfy-cli`，方便安装插件。
 

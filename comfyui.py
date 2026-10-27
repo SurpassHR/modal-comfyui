@@ -8,6 +8,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import modal
 
+from image_build import DEFAULT_COMFY_CUDA_VERSION, comfy_install_command
 from models import models, models_ext
 from plugin_install import (
     DEFAULT_CONSTRAINTS_FILE,
@@ -31,6 +32,9 @@ WORKFLOW_REPO_REF = os.getenv("WORKFLOW_REPO_REF", "master")
 
 GPU_TYPE = os.getenv("MODAL_GPU", "L4")
 COMFY_VER = os.getenv("COMFY_VER")
+COMFY_CUDA_VERSION = os.getenv(
+    "COMFY_CUDA_VERSION", DEFAULT_COMFY_CUDA_VERSION
+)
 
 def resolve_model_dir(model_dir: str) -> Path:
     """Resolve model_dir: absolute paths are used as-is, relative paths are
@@ -133,15 +137,19 @@ def download_all():
 vol = modal.Volume.from_name("hf-hub-cache", create_if_missing=True)
 
 # construct images and install deps/custom nodes
-VERSION = f"--version {COMFY_VER}" if COMFY_VER else ""
 image = (
     modal.Image.debian_slim(python_version="3.11")
     .add_local_python_source(
-        "models", "plugins", "plugin_install", "workflow_install", copy=True
+        "models",
+        "plugins",
+        "plugin_install",
+        "workflow_install",
+        "image_build",
+        copy=True,
     )
     .apt_install("git", "git-lfs", "libgl1-mesa-dev", "libglib2.0-0", "axel")
     .pip_install_from_requirements(str(root_dir / "requirements_comfy.txt"))
-    .run_commands(f"comfy --skip-prompt install --nvidia {VERSION}")
+    .run_commands(comfy_install_command(COMFY_VER, COMFY_CUDA_VERSION))
     .run_commands("git lfs install")
     .run_commands(core_constraints_command())
 )
@@ -294,23 +302,16 @@ app = modal.App(name="modal-comfyui", image=image)
     gpu=GPU_TYPE,
     volumes={"/cache": vol},
     scaledown_window=60,  # idle 1 minutes to shutdown
-    enable_memory_snapshot=True,
-    experimental_options={"enable_gpu_snapshot": True},
 )
 @modal.concurrent(max_inputs=10)
 class ComfyUI:
-    @modal.enter(snap=True)
+    @modal.enter()
     def start_checkpoint(self):
         self.proc = subprocess.Popen(
             "comfy launch --background -- --listen 0.0.0.0 --port 8000", shell=True
         )
-        # Block here — snapshot is taken only after this returns
+        # Wait until the embedded ComfyUI server is accepting connections.
         wait_for_port(8000, timeout=300)
-
-    @modal.enter(snap=False)
-    def start_restore(self):
-        wait_for_port(8000, timeout=30)
-        print("App Restored!")
     
     @modal.web_server(8000, startup_timeout=300, requires_proxy_auth=True)
     def ui(self):

@@ -124,6 +124,15 @@ CUDA/NVIDIA libraries, numpy, OpenCV, triton, and xformers. This resolves missin
 packages such as pyparsing or lazy-loader without replacing the CUDA PyTorch
 build with a CPU-only version.
 
+The image requests CUDA 13.0 explicitly because ComfyUI is installed while the
+builder has no GPU and otherwise falls back to CUDA 12.6. CUDA 13.0 is required
+for the optimized Comfy Kitchen paths used by `int8 convrot` models. Override
+the version only when the target GPU driver is too old:
+
+```bash
+COMFY_CUDA_VERSION=12.6 modal deploy comfyui.py
+```
+
 #### ComfyUI-Manager
 
 ComfyUI-Manager is built into the managed ComfyUI installation and is enabled
@@ -165,6 +174,12 @@ Use the Web Function URL printed by `modal deploy`; it normally has no `-dev`
 suffix. Once the app name, environment, class name, and web method name remain
 unchanged, later `modal deploy` runs keep the same production URL. A reverse
 proxy therefore does **not** need to change for every deployment.
+
+The current deployment uses normal container startup rather than Modal memory or
+GPU snapshots. Snapshots were disabled because they could leave the CUDA 13
+ComfyUI web container pending without creating a runnable container. A cold
+start can take roughly 60-90 seconds; after the 60-second idle window the
+container scales back to zero.
 
 ### Accessing the deployed container
 
@@ -506,7 +521,7 @@ redeploying the app is not required.
 ## Features
 
 - **Auto-scaling**: Scales down to zero when not in use to save costs.
-- **GPU Snapshots**: Fast startup times using Modal's GPU snapshots.
+- **CUDA 13 acceleration**: Optimized Comfy Kitchen kernels for `int8 convrot` models.
 - **Model Caching**: Uses Modal Volumes to cache models across runs.
 - **Custom Node Management**: Integrated with `comfy-cli` for easy plugin installation.
 
