@@ -94,9 +94,15 @@ WORKFLOW_REPO_REF=my-branch modal deploy comfyui.py
 工作流克隆层使用 `force_build=True`，因此每次 `modal deploy`
 都会重新拉取指定 revision，但不会重建昂贵的 ComfyUI 镜像层。
 
-只有仓库中的工作流会被持久保证。在 ComfyUI 网页中新建或修改的工作流保存在
-容器镜像文件系统中，缩容或重新部署后会丢失，除非后续将用户目录迁移到
-Modal Volume。
+ComfyUI 用户目录已持久化到挂载于 `/root/comfy/ComfyUI/user` 的
+`comfyui-user` Volume。首次启动时会从镜像内的
+`/opt/modal-comfyui-user-defaults` 补充默认文件，且不会覆盖 Volume 中已有的
+用户文件。因此，在网页中新建或修改的工作流、Manager 设置等文件可以在缩容和
+重新部署后保留。
+
+由于初始化不会覆盖已有文件，如果上游仓库更新了同名工作流，Volume 中的旧版本
+不会被替换。需要新版时，请删除或重命名 Volume 中的对应文件。`input` 和
+`output` 目录仍然不是持久化的。
 
 内置的 `reverse_proxy_fix` 自定义节点还会处理反向代理解码
 `/userdata` 路径中 `%2F` 的问题。它会注册支持斜杠的 GET、
@@ -145,8 +151,9 @@ COMFY_CUDA_VERSION=12.6 modal deploy comfyui.py
 
 ComfyUI-Manager 已内置于受管理的 ComfyUI 安装中，并通过 --enable-manager
 启用。不要将 ComfyUI-Manager 加入 plugins.py 或 comfy_plugins_ext；ComfyUI
-会主动阻止 custom_nodes 中的重复 Manager。已安装的 Python 包仍会提供 Manager
-界面和缓存服务。
+会主动阻止 custom_nodes 中的重复 Manager。部署时会通过
+--enable-manager-legacy-ui 显式启用旧版 Manager UI，使前端工具栏中出现
+Manager 入口；已安装的 Python 包提供后端和缓存服务。
 
 ### 缺失自定义节点时
 
@@ -182,6 +189,28 @@ modal serve comfyui.py
 ```bash
 modal deploy comfyui.py
 ```
+
+默认按以下顺序申请 GPU：`L4` → `A10G` → `T4`。Modal 启动容器时会依次
+尝试这些型号，因此某一种显卡暂时没有容量时不会直接卡住整个部署。可用
+逗号分隔的 `MODAL_GPU` 覆盖顺序：
+
+```bash
+MODAL_GPU=L4,A10G modal deploy comfyui.py
+```
+
+`T4` 只有 16 GB 显存，作为最后兜底；MOSS 工作流在 T4 上可能 OOM。如果
+发生 OOM，使用 `MODAL_GPU=L4,A10G` 禁用 T4。
+
+默认不固定计算区域（不设置 `region`），因此使用 Modal 全球资源池，可用性
+最高。如需限制区域，可设置逗号分隔的 `MODAL_REGIONS`：
+
+```bash
+MODAL_REGIONS=us,eu,ap modal deploy comfyui.py
+MODAL_REGIONS=ap-northeast modal deploy comfyui.py
+```
+
+优先使用宽区域：资源池更大，价格为基础价的 1.15x；窄区域价格为基础价的
+1.75x。区域选择只影响计算节点位置，公网 Web URL 和反向代理保持不变。
 
 请使用 `modal deploy` 输出的 Web Function URL。正式地址通常不带
 `-dev`。只要 App 名称、环境、类名和 Web 方法名不变，后续部署会保持

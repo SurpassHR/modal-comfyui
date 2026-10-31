@@ -8,6 +8,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import modal
 
+from deployment_config import parse_gpu_fallbacks, parse_regions
 from image_build import DEFAULT_COMFY_CUDA_VERSION, comfy_install_command
 from models import models, models_ext
 from plugin_install import (
@@ -17,6 +18,12 @@ from plugin_install import (
     requirements_install_command,
 )
 from plugins import comfy_plugins
+from user_volume import (
+    USER_DATA_DIR,
+    USER_DEFAULTS_DIR,
+    USER_VOLUME_NAME,
+    seed_user_directory,
+)
 from workflow_install import workflow_clone_command
 
 try:
@@ -30,11 +37,16 @@ COMFY_MODELS_ROOT = Path("/root/comfy/ComfyUI/models")
 WORKFLOW_REPO_URL = "https://github.com/SurpassHR/ComfyUI-workflows.git"
 WORKFLOW_REPO_REF = os.getenv("WORKFLOW_REPO_REF", "master")
 
-GPU_TYPE = os.getenv("MODAL_GPU", "L4")
+GPU_CONFIG = parse_gpu_fallbacks(os.getenv("MODAL_GPU"))
+REGION_CONFIG = parse_regions(os.getenv("MODAL_REGIONS"))
 COMFY_VER = os.getenv("COMFY_VER")
 COMFY_CUDA_VERSION = os.getenv(
     "COMFY_CUDA_VERSION", DEFAULT_COMFY_CUDA_VERSION
 )
+
+print(f"GPU fallback order: {GPU_CONFIG}")
+print(f"Compute regions: {REGION_CONFIG or 'global'}")
+
 
 def resolve_model_dir(model_dir: str) -> Path:
     """Resolve model_dir: absolute paths are used as-is, relative paths are
@@ -135,6 +147,7 @@ def download_all():
 
 
 vol = modal.Volume.from_name("hf-hub-cache", create_if_missing=True)
+user_vol = modal.Volume.from_name(USER_VOLUME_NAME, create_if_missing=True)
 
 # construct images and install deps/custom nodes
 image = (
@@ -145,6 +158,8 @@ image = (
         "plugin_install",
         "workflow_install",
         "image_build",
+        "user_volume",
+        "deployment_config",
         copy=True,
     )
     .apt_install("git", "git-lfs", "libgl1-mesa-dev", "libglib2.0-0", "axel")
@@ -279,6 +294,18 @@ image = image.run_commands(
     force_build=True,
 )
 
+# Preserve a copy of the image defaults outside the mounted user directory so
+# an empty persistent user Volume can be initialized without losing workflows.
+# Modal refuses to mount a Volume over a non-empty image directory, so remove
+# the image copy after seeding the defaults snapshot; start_checkpoint()
+# recreates it inside the Volume on first boot.
+image = image.run_commands(
+    f"rm -rf {shlex.quote(USER_DEFAULTS_DIR)} && "
+    f"mkdir -p {shlex.quote(USER_DEFAULTS_DIR)} && "
+    f"cp -a /root/comfy/ComfyUI/user/. {shlex.quote(USER_DEFAULTS_DIR)}/ && "
+    "rm -rf /root/comfy/ComfyUI/user"
+)
+
 
 def wait_for_port(port: int, timeout: int = 60):
     """Block until the port is accepting connections."""
@@ -299,16 +326,21 @@ app = modal.App(name="modal-comfyui", image=image)
 
 @app.cls(
     max_containers=1,
-    gpu=GPU_TYPE,
-    volumes={"/cache": vol},
+    gpu=GPU_CONFIG,
+    region=REGION_CONFIG,
+    volumes={"/cache": vol, USER_DATA_DIR: user_vol},
     scaledown_window=60,  # idle 1 minutes to shutdown
 )
 @modal.concurrent(max_inputs=10)
 class ComfyUI:
     @modal.enter()
     def start_checkpoint(self):
+        if seed_user_directory(USER_DEFAULTS_DIR, USER_DATA_DIR):
+            user_vol.commit()
         self.proc = subprocess.Popen(
-            "comfy launch --background -- --listen 0.0.0.0 --port 8000", shell=True
+            "comfy launch --background -- "
+            "--listen 0.0.0.0 --port 8000 --enable-manager-legacy-ui",
+            shell=True,
         )
         # Wait until the embedded ComfyUI server is accepting connections.
         wait_for_port(8000, timeout=300)

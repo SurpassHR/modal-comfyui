@@ -85,10 +85,16 @@ The workflow clone layer uses `force_build=True`, so each `modal deploy` checks
 out the latest requested revision without rebuilding the expensive ComfyUI
 image layers.
 
-Only workflows from the repository are guaranteed to persist. Workflows created
-or edited in the ComfyUI browser are stored in the container image filesystem
-and are lost after scale-down or redeployment unless the user directory is
-moved to a Modal Volume.
+The ComfyUI user directory is persisted in the `comfyui-user` Volume mounted at
+`/root/comfy/ComfyUI/user`. On first start, defaults are copied from an image
+snapshot at `/opt/modal-comfyui-user-defaults`; existing files in the Volume
+are never overwritten. Workflows, Manager settings, and other files created or
+edited in the browser therefore survive scale-down and redeployment.
+
+Because seeding does not overwrite existing files, a changed upstream workflow
+with the same filename will keep the version already stored in the Volume.
+Delete or rename that Volume file if the new repository version should replace
+it. The `input` and `output` directories are still ephemeral.
 
 The bundled `reverse_proxy_fix` custom node also handles reverse proxies that
 decode `%2F` in `/userdata` paths. It registers slash-tolerant GET, POST, and
@@ -138,8 +144,10 @@ COMFY_CUDA_VERSION=12.6 modal deploy comfyui.py
 ComfyUI-Manager is built into the managed ComfyUI installation and is enabled
 with --enable-manager. Do not add ComfyUI-Manager to plugins.py or
 comfy_plugins_ext: ComfyUI deliberately blocks the custom_nodes copy to avoid
-loading a duplicate Manager. The installed Python package still provides the
-Manager UI and cache service.
+loading a duplicate Manager. The deployment launches the legacy Manager UI
+explicitly with --enable-manager-legacy-ui so the Manager entry is visible in
+the frontend toolbar; the installed Python package provides the backend and
+cache service.
 
 ### In case of Insufficient Custom Node
 
@@ -169,6 +177,31 @@ To deploy ComfyUI as a persistent app:
 ```bash
 modal deploy comfyui.py
 ```
+
+The app requests an ordered GPU fallback list by default: `L4` → `A10G` →
+`T4`. Modal tries each type in order when starting a container, so a shortage
+of one GPU type does not block the deployment. Override the list with a
+comma-separated `MODAL_GPU`:
+
+```bash
+MODAL_GPU=L4,A10G modal deploy comfyui.py
+```
+
+`T4` is the last fallback because it has only 16 GB of memory; the MOSS
+workflow can run out of memory on it. Remove `T4` with
+`MODAL_GPU=L4,A10G` if that happens.
+
+Compute placement is global by default (no `region` pin), which gives the
+largest resource pool. To restrict it, set comma-separated `MODAL_REGIONS`:
+
+```bash
+MODAL_REGIONS=us,eu,ap modal deploy comfyui.py
+MODAL_REGIONS=ap-northeast modal deploy comfyui.py
+```
+
+Prefer broad regions when possible: they cover a larger resource pool and
+cost 1.15x the base rate; narrow regions cost 1.75x. Region selection changes
+compute placement only; the public Web URL and reverse proxy remain unchanged.
 
 Use the Web Function URL printed by `modal deploy`; it normally has no `-dev`
 suffix. Once the app name, environment, class name, and web method name remain
